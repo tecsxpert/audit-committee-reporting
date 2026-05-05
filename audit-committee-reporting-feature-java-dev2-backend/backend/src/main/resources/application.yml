@@ -1,0 +1,79 @@
+# application.yml
+# All sensitive values come from .env file via ${VARIABLE_NAME}
+
+spring:
+  application:
+    name: tool27-audit-reporting
+
+  # ── Database ─────────────────────────────────────────────────────────────
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:5432/${POSTGRES_DB:tool27db}?timezone=UTC
+    username: ${POSTGRES_USER:tool27user}
+    password: ${POSTGRES_PASSWORD:Tool27Pass123}
+    driver-class-name: org.postgresql.Driver
+
+  # ── JPA / Hibernate ───────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: update        # Temporarily update schema to create tables
+    show-sql: false             # set true if you want to see SQL in logs
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # ── Flyway Migrations ─────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # ── Redis Cache ───────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  # ── Email ─────────────────────────────────────────────────────────────────
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:maxyy6362@gmail.com}
+    password: ${MAIL_PASSWORD:kbul cdcr zwky kfxk}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+  # ── Jackson (JSON) ────────────────────────────────────────────────────────
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# ── Server ───────────────────────────────────────────────────────────────────
+server:
+  port: 8080
+
+# ── JWT Settings ──────────────────────────────────────────────────────────────
+jwt:
+  secret: ${JWT_SECRET:default-secret-change-this-in-production-abc123}
+  expiration: 86400000     # 24 hours in milliseconds
+
+# ── Actuator (health endpoint for Docker) ─────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# ── Scheduling (enables @Scheduled jobs) ──────────────────────────────────────
+# @EnableScheduling is added in ToolApplication.java

@@ -1,0 +1,32 @@
+# application-test.yml
+# Used when running tests with @ActiveProfiles("test")
+# H2 is an in-memory database — no Docker needed for tests
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop    # create tables fresh for each test run
+    show-sql: false
+    database-platform: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false             # disable Flyway — H2 uses ddl-auto instead
+
+  mail:
+    host: localhost
+    port: 3025                 # fake mail server for tests
+
+  data:
+    redis:
+      host: localhost
+      port: 6370               # use a different port or mock for tests
+
+jwt:
+  secret: test-secret-key-for-unit-tests-only-abc123
+  expiration: 86400000
