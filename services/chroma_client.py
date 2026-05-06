@@ -1,137 +1,92 @@
-"""
-Day 4 — AI Developer 2
-ChromaDB client — vector database for the RAG pipeline.
-
-Features:
-  - Persistent storage in ./chroma_data (survives restarts)
-  - Embeds text using sentence-transformers (all-MiniLM-L6-v2)
-  - add()   — store a document with metadata
-  - query() — find top-N most similar documents
-  - count() — total docs stored (used by /health)
-  - Single singleton instance imported by all routes
-"""
-
+import os
 import logging
 import chromadb
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "audit_knowledge"
-EMBED_MODEL     = "all-MiniLM-L6-v2"
+# Module-level singletons (created once, reused on every request)
+_client = None
+_collection = None
+
+COLLECTION_NAME = "audit_documents"
 
 
-class ChromaClient:
-    def __init__(self):
-        logger.info("ChromaDB: loading embedding model '%s' ...", EMBED_MODEL)
-        self.model = SentenceTransformer(EMBED_MODEL)
-        logger.info("ChromaDB: model loaded")
+def get_chroma_client() -> chromadb.PersistentClient:
+    """
+    Return the ChromaDB client (singleton pattern).
+    Creates it on the first call, reuses it afterwards.
+    Data is saved to the path in CHROMA_PATH env var (default: ./chroma_data).
+    """
+    global _client
+    if _client is None:
+        chroma_path = os.getenv("CHROMA_PATH", "./chroma_data")
+        _client = chromadb.PersistentClient(path=chroma_path)
+        logger.info(f"ChromaDB client created. Storing data at: {chroma_path}")
+    return _client
 
-        self.client = chromadb.PersistentClient(path="./chroma_data")
-        self.collection = self.client.get_or_create_collection(
+
+def get_collection() -> chromadb.Collection:
+    """
+    Return the 'audit_documents' collection (singleton pattern).
+    Creates it if it doesn't exist yet.
+    Uses cosine similarity — best for finding semantically similar text.
+    """
+    global _collection
+    if _collection is None:
+        client = get_chroma_client()
+        _collection = client.get_or_create_collection(
             name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
+            metadata={"hnsw:space": "cosine"},  # cosine = good for text similarity
         )
         logger.info(
-            "ChromaDB: collection '%s' ready — %d docs",
-            COLLECTION_NAME,
-            self.collection.count(),
+            f"ChromaDB collection '{COLLECTION_NAME}' ready. "
+            f"Documents stored: {_collection.count()}"
         )
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def embed(self, text: str) -> list[float]:
-        """Convert text to a vector embedding."""
-        return self.model.encode(text).tolist()
-
-    def add(self, doc_id: str, text: str, metadata: dict = {}) -> bool:
-        """
-        Store a document in ChromaDB.
-
-        Args:
-            doc_id:   Unique string ID (e.g. "doc-001").
-            text:     The document text to embed and store.
-            metadata: Optional dict of key-value pairs (source, topic, etc.)
-
-        Returns:
-            True on success, False on failure.
-        """
-        try:
-            self.collection.add(
-                ids=[doc_id],
-                embeddings=[self.embed(text)],
-                documents=[text],
-                metadatas=[metadata],
-            )
-            logger.info("ChromaDB: added doc_id=%s", doc_id)
-            return True
-        except Exception as e:
-            logger.error("ChromaDB add failed doc_id=%s error=%s", doc_id, e)
-            return False
-
-    def query(self, text: str, n_results: int = 3) -> list[dict]:
-        """
-        Find the most semantically similar documents.
-
-        Args:
-            text:      The query text to search for.
-            n_results: Number of results to return (default 3).
-
-        Returns:
-            List of dicts with keys: text, metadata, distance
-            Empty list if collection is empty or query fails.
-        """
-        try:
-            total = self.collection.count()
-            if total == 0:
-                logger.warning("ChromaDB: collection is empty, returning []")
-                return []
-
-            # Can't return more results than docs stored
-            n = min(n_results, total)
-
-            results = self.collection.query(
-                query_embeddings=[self.embed(text)],
-                n_results=n,
-            )
-
-            docs      = results.get("documents", [[]])[0]
-            metadatas = results.get("metadatas",  [[]])[0]
-            distances = results.get("distances",  [[]])[0]
-
-            return [
-                {
-                    "text":     doc,
-                    "metadata": meta,
-                    "distance": round(dist, 4),
-                }
-                for doc, meta, dist in zip(docs, metadatas, distances)
-            ]
-        except Exception as e:
-            logger.error("ChromaDB query failed: %s", e)
-            return []
-
-    def count(self) -> int:
-        """Return total number of documents stored."""
-        try:
-            return self.collection.count()
-        except Exception:
-            return 0
-
-    def delete(self, doc_id: str) -> bool:
-        """Delete a document by ID."""
-        try:
-            self.collection.delete(ids=[doc_id])
-            return True
-        except Exception as e:
-            logger.error("ChromaDB delete failed doc_id=%s error=%s", doc_id, e)
-            return False
+    return _collection
 
 
-# ---------------------------------------------------------------------------
-# Singleton — import this everywhere:
-#   from services.chroma_client import chroma_client
-# ---------------------------------------------------------------------------
-chroma_client = ChromaClient()
+def get_doc_count() -> int:
+    """
+    Return how many documents are stored in ChromaDB.
+    Used by the /health endpoint to report database status.
+    Returns 0 if ChromaDB is unreachable.
+    """
+    try:
+        return get_collection().count()
+    except Exception as exc:
+        logger.error(f"ChromaDB count error: {exc}")
+        return 0
+
+
+# ── Quick self-test ────────────────────────────────────────────────────────────
+# Run this file directly to verify ChromaDB is working:
+#   python services/chroma_client.py
+
+if __name__ == "__main__":
+    from sentence_transformers import SentenceTransformer
+
+    print("🔄  Testing ChromaDB setup ...")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    collection = get_collection()
+
+    # Add a test document
+    test_text = "The audit committee reviewed internal controls for financial reporting."
+    embedding = model.encode(test_text).tolist()
+
+    collection.upsert(
+        ids=["test_doc_1"],
+        embeddings=[embedding],
+        documents=[test_text],
+        metadatas=[{"source": "test", "type": "audit_finding"}],
+    )
+    print(f"✅  Stored test document. Total docs: {collection.count()}")
+
+    # Query for it
+    query_text = "financial audit internal controls"
+    query_embedding = model.encode(query_text).tolist()
+    results = collection.query(query_embeddings=[query_embedding], n_results=1)
+
+    print(f"✅  Query returned: {results['documents'][0][0][:80]}...")
+    print("✅  ChromaDB is working correctly!")

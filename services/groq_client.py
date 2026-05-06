@@ -1,115 +1,107 @@
 import os
 import time
 import logging
-from collections import deque
 from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
+
 logger = logging.getLogger(__name__)
 
+# The AI model we use in this project (free tier on Groq)
+MODEL_NAME = "llama-3.3-70b-versatile"
 
-class GroqClient:
-    MODEL = "llama-3.3-70b-versatile"
-    MAX_RETRIES = 3
+# Store the last 10 response times in milliseconds.
+# This list is used by the /health endpoint to report average speed.
+_response_times: list[int] = []
 
-    def __init__(self):
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise EnvironmentError(
-                "GROQ_API_KEY is not set. "
-                "Copy .env.example → .env and add your key from console.groq.com"
+
+def call_groq(
+    messages: list[dict],
+    temperature: float = 0.3,
+    max_tokens: int = 1000,
+    retries: int = 3,
+) -> tuple[str, int, int]:
+    """
+    Send a list of messages to the Groq LLM and return the reply.
+
+    Parameters
+    ----------
+    messages    : list of dicts like [{"role": "user", "content": "..."}]
+    temperature : 0.0 = very precise/factual, 1.0 = very creative.
+                  Use 0.1–0.3 for JSON outputs, 0.4–0.7 for reports/summaries.
+    max_tokens  : maximum number of tokens the AI can write back (1 token ≈ 0.75 words)
+    retries     : how many times to retry on failure before giving up
+
+    Returns
+    -------
+    (text, tokens_used, response_time_ms)
+      text              – the AI's reply as a string
+      tokens_used       – total tokens consumed (prompt + completion)
+      response_time_ms  – how long the API call took in milliseconds
+
+    Raises
+    ------
+    Exception if all retries are exhausted
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY is not set in environment variables")
+
+    client = Groq(api_key=api_key)
+    last_exception = None
+
+    for attempt in range(retries):
+        try:
+            start_time = time.time()
+
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
-        self.client = Groq(api_key=api_key)
-        # Rolling window of last 10 response times (ms) for /health stats
-        self._response_times: deque[float] = deque(maxlen=10)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+            elapsed_ms = int((time.time() - start_time) * 1000)
 
-    def call(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float = 0.3,
-        max_tokens: int = 1000,
-    ) -> str | None:
-        """
-        Call the Groq LLM with up to 3 retries and exponential backoff.
+            # Keep only the last 10 response times (for /health stats)
+            _response_times.append(elapsed_ms)
+            if len(_response_times) > 10:
+                _response_times.pop(0)
 
-        Args:
-            system_prompt: Role/instructions for the model.
-            user_prompt:   The actual input from the application.
-            temperature:   0.2–0.3 for factual/structured tasks,
-                           0.5–0.7 for creative/generative tasks.
-            max_tokens:    Maximum tokens in the response (default 1000).
+            text = response.choices[0].message.content
+            tokens = response.usage.total_tokens
 
-        Returns:
-            The model's response string, or None if all retries failed.
-            Callers MUST handle None and return a fallback response —
-            never propagate None to the HTTP response body.
-        """
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                t_start = time.time()
+            logger.info(
+                f"Groq call succeeded | attempt={attempt + 1} | "
+                f"tokens={tokens} | time={elapsed_ms}ms"
+            )
+            return text, tokens, elapsed_ms
 
-                response = self.client.chat.completions.create(
-                    model=self.MODEL,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+        except Exception as exc:
+            last_exception = exc
+            wait_seconds = 2 ** attempt  # 1s, 2s, 4s
+            logger.error(
+                f"Groq call failed (attempt {attempt + 1}/{retries}): {exc}. "
+                f"Retrying in {wait_seconds}s..."
+            )
+            if attempt < retries - 1:
+                time.sleep(wait_seconds)
 
-                elapsed_ms = (time.time() - t_start) * 1000
-                self._response_times.append(elapsed_ms)
-
-                content = response.choices[0].message.content
-                tokens  = response.usage.total_tokens
-
-                logger.info(
-                    "Groq call succeeded | attempt=%d model=%s tokens=%d time=%.0fms",
-                    attempt, self.MODEL, tokens, elapsed_ms,
-                )
-                return content
-
-            except Exception as exc:
-                wait = 2 ** attempt  # 2s, 4s, 8s
-                logger.warning(
-                    "Groq call failed | attempt=%d/%d error=%s retrying_in=%ds",
-                    attempt, self.MAX_RETRIES, exc, wait,
-                )
-                if attempt < self.MAX_RETRIES:
-                    time.sleep(wait)
-
-        logger.error(
-            "Groq call failed after %d attempts — returning None for fallback",
-            self.MAX_RETRIES,
-        )
-        return None
-
-    # ------------------------------------------------------------------
-    # Stats helpers (used by /health endpoint)
-    # ------------------------------------------------------------------
-
-    @property
-    def avg_response_time_ms(self) -> float:
-        """Average of the last 10 response times in milliseconds."""
-        if not self._response_times:
-            return 0.0
-        return round(sum(self._response_times) / len(self._response_times), 1)
-
-    @property
-    def model_name(self) -> str:
-        return self.MODEL
+    # All retries exhausted — raise so callers can return fallback response
+    raise last_exception
 
 
-# ---------------------------------------------------------------------------
-# Singleton — import this everywhere:
-#   from services.groq_client import groq_client
-# ---------------------------------------------------------------------------
-groq_client = GroqClient()
-#############################################################################
+def get_model_name() -> str:
+    """Return the name of the AI model being used."""
+    return MODEL_NAME
+
+
+def get_avg_response_time() -> int:
+    """
+    Return the average of the last 10 Groq API response times in milliseconds.
+    Returns 0 if no calls have been made yet.
+    """
+    if not _response_times:
+        return 0
+    return int(sum(_response_times) / len(_response_times))

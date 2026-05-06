@@ -1,5 +1,8 @@
 .env
+venv/
+venvvenv/
 __pycache__/
-*.pyc
-node_modules/
 chroma_data/
+*.pyc
+*.pyo
+node_modules/

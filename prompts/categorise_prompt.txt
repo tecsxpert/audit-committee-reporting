@@ -1,0 +1,27 @@
+Available Categories:
+- Financial Risk
+- Compliance & Regulatory
+- Operational Risk
+- IT & Cybersecurity
+- Governance & Ethics
+- Fraud & Misconduct
+- Strategic Risk
+- Environmental & Social
+
+Audit Finding:
+"""
+{text}
+"""
+
+Instructions:
+1. Read the finding carefully.
+2. Choose the single BEST matching category.
+3. Rate your confidence from 0.0 (guessing) to 1.0 (certain).
+4. Write one sentence explaining your choice.
+
+Respond ONLY with valid JSON — no markdown, no backticks, no extra text:
+{
+  "category": "<one of the 8 categories above>",
+  "confidence": <float 0.0–1.0>,
+  "reasoning": "<one professional sentence explaining this classification>"
+}

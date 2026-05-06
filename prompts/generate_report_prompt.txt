@@ -1,0 +1,32 @@
+Report Details:
+- Title: {title}
+- Reporting Period: {period}
+- Number of Audit Items: {item_count}
+
+Audit Items:
+{items_text}
+
+Write a formal, professional audit committee report. Be specific, concise, and actionable.
+
+Respond ONLY with valid JSON — no markdown, no backticks, no extra text:
+{
+  "title": "{title} — Audit Committee Report",
+  "executive_summary": "<2–3 sentences summarising the overall risk posture, key findings, and recommended actions for the board>",
+  "overview": "<one paragraph describing the audit scope, methodology, areas reviewed, and reporting period>",
+  "top_items": [
+    {
+      "item": "<concise finding title>",
+      "detail": "<one sentence describing the finding>",
+      "risk_level": "<High | Medium | Low>",
+      "status": "<Open | In Progress | Closed>"
+    }
+  ],
+  "recommendations": [
+    {
+      "action": "<specific, measurable action to take>",
+      "priority": "<High | Medium | Low>",
+      "owner": "<suggested responsible party, e.g. CFO, IT Director, Legal Counsel>",
+      "deadline": "<e.g. Q3 2026 or Within 30 days>"
+    }
+  ]
+}

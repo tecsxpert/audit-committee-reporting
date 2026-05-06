@@ -1,52 +1,68 @@
+"""
+test_groq.py  — DAY 1 TASK (AI Developer 2)
+--------------------------------------------
+Run this FIRST to confirm your Groq API key is valid and working.
+
+Usage:
+    python test_groq.py
+
+What it does:
+    1. Reads GROQ_API_KEY from your .env file
+    2. Sends a simple message to the LLaMA-3.3-70b model
+    3. Prints the response so you can see it is working
+"""
+
 import os
 import sys
 from dotenv import load_dotenv
 
+# Load environment variables from .env
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-if not GROQ_API_KEY or GROQ_API_KEY == "gsk_your_key_here":
-    print("❌ GROQ_API_KEY is not set.")
-    print("   1. Copy .env.example → .env")
-    print("   2. Paste your real key from console.groq.com")
-    sys.exit(1)
+def test_groq_connection():
+    """
+    Send a test message to Groq API and confirm it replies.
+    This uses the same model the whole project will use.
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        print("❌  GROQ_API_KEY not found in .env file!")
+        print("   → Go to https://console.groq.com, create an API key, and add it to .env")
+        sys.exit(1)
 
-try:
-    from groq import Groq
-except ImportError:
-    print("❌ groq package not installed. Run: pip install -r requirements.txt")
-    sys.exit(1)
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
 
-try:
-    client = Groq(api_key=GROQ_API_KEY)
+        print("🔄  Calling Groq API with model llama-3.3-70b-versatile ...")
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "You are an audit assistant. "
+                        "Reply with exactly one sentence confirming you are ready."
+                    ),
+                }
+            ],
+            max_tokens=50,
+            temperature=0.3,
+        )
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant. Reply in exactly one sentence."
-            },
-            {
-                "role": "user",
-                "content": "Confirm that the Groq API is working correctly."
-            }
-        ],
-        temperature=0.3,
-        max_tokens=60,
-    )
+        reply = response.choices[0].message.content
+        tokens = response.usage.total_tokens
 
-    reply  = response.choices[0].message.content
-    tokens = response.usage.total_tokens
-    model  = response.model
+        print(f"✅  Groq API is working!")
+        print(f"   Model reply : {reply}")
+        print(f"   Tokens used : {tokens}")
+        return True
 
-    print("✅ Groq API is working!")
-    print(f"   Model : {model}")
-    print(f"   Reply : {reply}")
-    print(f"   Tokens: {tokens}")
+    except Exception as e:
+        print(f"❌  Groq API call failed: {e}")
+        sys.exit(1)
 
-except Exception as e:
-    print(f"❌ Groq API call failed: {e}")
-    print("   Check your key at console.groq.com → API Keys")
-    sys.exit(1)
+
+if __name__ == "__main__":
+    test_groq_connection()
